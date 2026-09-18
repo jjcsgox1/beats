@@ -1,0 +1,14 @@
+{
+  "name": "Beats — interval beat counter",
+  "short_name": "Beats",
+  "description": "Counts how many beats a second an interval is making, for tuning a temperament by ear.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12130f",
+  "theme_color": "#12130f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

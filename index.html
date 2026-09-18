@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12130f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Beats">
+<link rel="manifest" href="manifest.json">
+<title>Beats</title>
+<style>
+  :root {
+    --ink: #e8e9df;
+    --dim: #8b9080;
+    --faint: #5c6153;
+    --bg: #12130f;
+    --panel: #1b1d16;
+    --line: #2f332a;
+    --live: #b9d98a;
+    --warn: #e0b45f;
+    --bad: #e08a76;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* Author rules beat the browser's own, so a plain `display:` on any class
+     below would quietly cancel the hidden attribute on that element. It did. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font: 16px/1.45 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 14px;
+    max-width: 640px; margin: 0 auto;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  h1 { font-size: .8rem; letter-spacing: .18em; text-transform: uppercase;
+       color: var(--dim); font-weight: 600; margin: 0; }
+  #state { font-size: .78rem; color: var(--faint); letter-spacing: .04em; }
+  #state.on { color: var(--live); }
+
+  button {
+    font: inherit; font-weight: 600; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--line);
+    padding: .85rem 1.2rem; border-radius: 10px; cursor: pointer;
+  }
+  button:active { background: #23261d; }
+  #listen { width: 100%; font-size: 1.05rem; padding: 1.1rem; }
+
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 14px; padding: 18px 16px; }
+
+  #heard { text-align: center; }
+  #names { font-size: 2.1rem; font-weight: 600; letter-spacing: .02em; line-height: 1.1; }
+  #kind { color: var(--dim); font-size: 1rem; margin-top: 2px; }
+  #where { color: var(--faint); font-size: .8rem; margin-top: 6px; }
+
+  #rate { font-variant-numeric: tabular-nums; font-weight: 300;
+          font-size: 5.4rem; line-height: 1; margin: 14px 0 0;
+          letter-spacing: -.02em; }
+  #rate.held { color: var(--faint); }
+  #rate.none { font-size: 2.2rem; font-weight: 400; color: var(--dim); }
+  #unit { color: var(--dim); font-size: .85rem; letter-spacing: .1em;
+          text-transform: uppercase; margin-top: 2px; }
+
+  #wavewrap { margin-top: 16px; display: flex; align-items: center; gap: 12px; }
+  canvas { flex: 1; width: 100%; height: 64px; display: block; }
+  #pulse { width: 16px; height: 16px; border-radius: 50%; background: var(--faint);
+           flex: 0 0 auto; }
+  #pulse.beating { background: var(--live); animation: thump linear infinite; }
+  @keyframes thump { 0% { opacity: 1; transform: scale(1); }
+                     45% { opacity: .18; transform: scale(.72); }
+                     100% { opacity: 1; transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { #pulse.beating { animation: none; } }
+
+  #targets { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px;
+             text-align: left; font-size: .92rem; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+  .row b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row span { color: var(--dim); }
+  #frame { color: var(--faint); font-size: .76rem; line-height: 1.5; margin-top: 12px; }
+
+  #notice { font-size: .92rem; line-height: 1.5; padding: 12px 14px; border-radius: 12px;
+            border: 1px solid var(--line); background: var(--panel); }
+  #notice.warn { color: var(--warn); border-color: #4a3f22; }
+  #notice.bad { color: var(--bad); border-color: #4a2b23; }
+  #notice.hide { display: none; }
+
+  details { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  summary { padding: 12px 14px; cursor: pointer; color: var(--dim); font-size: .9rem; }
+  .inner { padding: 0 14px 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  select { font: inherit; background: var(--bg); color: var(--ink);
+           border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; }
+  .inner p { flex-basis: 100%; margin: 4px 0 0; color: var(--faint); font-size: .78rem; line-height: 1.5; }
+  #mic { color: var(--faint); font-size: .76rem; line-height: 1.5; text-align: center; }
+  a { color: var(--dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Beats</h1>
+  <div id="state">not listening</div>
+</header>
+
+<button id="listen">Listen</button>
+
+<div class="card" id="heard" hidden>
+  <div id="names">—</div>
+  <div id="kind"></div>
+  <div id="where"></div>
+
+  <div id="rate" class="none">—</div>
+  <div id="unit">beats per second</div>
+
+  <div id="wavewrap">
+    <canvas id="wave" width="600" height="128" aria-hidden="true"></canvas>
+    <div id="pulse"></div>
+  </div>
+
+  <div id="targets" hidden>
+    <div class="row"><span id="wantLabel">equal temperament wants</span><b id="wantHere">—</b></div>
+    <div class="row" id="tableRow" hidden><span>from the printed table at A4 440</span><b id="wantTable">—</b></div>
+    <div class="row" id="pitchRow" hidden><span>this piano is sitting at</span><b id="pitch">—</b></div>
+    <div class="row" id="widthRow" hidden><span id="widthLabel">wide of pure by</span><b id="width">—</b></div>
+    <div id="frame"></div>
+  </div>
+</div>
+
+<div id="notice" class="hide"></div>
+
+<details id="manual">
+  <summary>Pick the interval yourself</summary>
+  <div class="inner">
+    <select id="pickLow"></select>
+    <select id="pickIv"></select>
+    <button id="pickClear" type="button">Back to listening</button>
+    <p>Normally the app works out both notes for itself. Pick them here when you want an
+       octave or a double octave — the upper note of an octave has no partial the lower one
+       does not already have, so nothing in the sound distinguishes it from a single note —
+       or when it keeps hearing the wrong thing.</p>
+  </div>
+</details>
+
+<div id="mic"></div>
+
+<script src="intervals.js"></script>
+<script src="dsp.js"></script>
+<script src="listen.js"></script>
+<script src="capture.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

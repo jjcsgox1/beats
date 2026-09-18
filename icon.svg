@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Two waves drifting in and out of step: the beat itself. -->
+  <rect width="512" height="512" rx="112" fill="#12130f"/>
+  <g fill="none" stroke-linecap="round" stroke-width="15">
+    <path stroke="#5c6153"
+          d="M56 256q16.5-62 33-0t33 0q16.5-62 33 0t33 0q16.5-62 33 0t33 0q16.5-62 33 0t33 0q16.5-62 33 0t33 0q16.5-62 33 0t33 0"/>
+  </g>
+  <!-- The envelope their sum makes, which is what gets counted. -->
+  <path fill="none" stroke="#b9d98a" stroke-width="22" stroke-linecap="round"
+        d="M56 336q50-150 100 0t100 0q50-150 100 0t100 0"/>
+  <path fill="none" stroke="#b9d98a" stroke-width="22" stroke-linecap="round" opacity=".35"
+        d="M56 176q50 150 100 0t100 0q50 150 100 0t100 0"/>
+</svg>

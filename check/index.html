@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beats — bench check</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         margin: 0; padding: 1.2rem; background: #12130f; color: #dfe0d8; }
+  h1 { font-size: 1.1rem; letter-spacing: .06em; text-transform: uppercase; color: #9aa08c; }
+  pre { white-space: pre-wrap; margin: 0; }
+  .pass { color: #8fd18a; }
+  .fail { color: #f08a7a; }
+  .note { color: #9aa08c; }
+  button { font: inherit; background: #2a2c24; color: #dfe0d8; border: 1px solid #444736;
+           padding: .4rem .9rem; border-radius: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Beats — bench check</h1>
+<p class="note">Every case here has an answer that was decided before the measurement ran.
+A beat rate is built into the signal by construction, so “close enough” is a number and not a
+judgement. Nothing on this page uses a microphone.</p>
+<p><button id="run">run again</button> <button id="corpus">add real piano notes…</button>
+<input id="files" type="file" accept=".wav" multiple hidden></p>
+<pre id="out">running…</pre>
+
+<script src="../intervals.js"></script>
+<script src="../dsp.js"></script>
+<script src="../listen.js"></script>
+<script src="synth.js"></script>
+<script>
+"use strict";
+
+const SR = 48000;
+const out = document.getElementById("out");
+let lines = [];
+let passes = 0, fails = 0;
+
+function say(s, cls) {
+  lines.push(cls ? '<span class="' + cls + '">' + s + "</span>" : s);
+}
+function flush() { out.innerHTML = lines.join("\n"); }
+
+function check(name, ok, detail) {
+  if (ok) { passes++; say("  pass  " + name.padEnd(46) + (detail || ""), "pass"); }
+  else    { fails++; say("  FAIL  " + name.padEnd(46) + (detail || ""), "fail"); }
+}
+
+function heading(s) { say(""); say(s, "note"); }
+
+/* --- the cases --------------------------------------------------------- */
+
+const F3 = 174.614, A3 = 220.0, C4 = 261.626, G3 = 195.998;
+
+/*
+ * Build just enough note for the window the app will ask for, and read it from
+ * the end — which puts the window over the note from shortly after the strike,
+ * where a technician actually listens. Reading the tail of a long buffer tests
+ * something else: what the app does with a note that has already died away.
+ */
+function readInterval(opts, seconds) {
+  // The app sizes its window from what equal temperament expects. Where the
+  // case deliberately beats much slower than that — a third at one a second —
+  // it will ask to listen for longer, so there has to be longer to listen to.
+  const etLen = Listen.windowFor(SR, opts.semitones, opts.lowHz);
+  const asked = Math.min(4.5, Math.max(1.4, 5 / Math.max(0.4, opts.beatHz)));
+  const trueLen = 1 << Math.round(Math.log2(asked * SR));
+  const need = Math.max(etLen, trueLen) / SR + 0.4;
+  const built = Synth.interval(SR, seconds || need, opts);
+  const r = Listen.read(built.samples, built.samples.length, SR, opts.pick || null);
+  return { built: built, r: r };
+}
+
+function beatCase(label, opts, tol, seconds) {
+  const { built, r } = readInterval(opts, seconds);
+  if (!r || r.beatHz === undefined) {
+    check(label, false, "no reading (" + describe(r) + ")");
+    return;
+  }
+  const err = r.beatHz - built.truth;
+  check(label, Math.abs(err) <= tol && r.clean,
+        "want " + built.truth.toFixed(2) + "  got " + r.beatHz.toFixed(2) +
+        "  off " + (err >= 0 ? "+" : "") + err.toFixed(2) +
+        "  explained " + (r.explained * 100).toFixed(0) + "%");
+}
+
+function describe(r) {
+  if (!r) return "null";
+  const k = ["waiting", "silent", "quiet", "steady", "short", "tooSlow", "oneNote", "unsupported"];
+  for (const x of k) if (r[x]) return x + (x === "oneNote" ? " " + r[x].toFixed(1) + "Hz" : "");
+  return "?";
+}
+
+function runAll() {
+  lines = []; passes = 0; fails = 0;
+
+  heading("MAJOR THIRDS, PURE PARTIALS — F3 against the note above it");
+  for (const b of [1.0, 2.0, 4.0, 6.93, 9.0, 11.0, 14.0]) {
+    beatCase(b.toFixed(2) + " beats a second",
+      { lowHz: F3, semitones: 4, beatHz: b }, 0.15);
+  }
+
+  heading("STIFF STRINGS — the partials sit sharp, the beat must not move");
+  beatCase("major third, B = 0.0004",  { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004 }, 0.15);
+  beatCase("major third, B = 0.0010",  { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0010 }, 0.15);
+  beatCase("minor third, B = 0.0004",  { lowHz: A3, semitones: 3, beatHz: 11.87, bLow: 0.0004 }, 0.2);
+  beatCase("major sixth, B = 0.0004",  { lowHz: F3, semitones: 9, beatHz: 7.93, bLow: 0.0004 }, 0.15);
+  beatCase("major tenth, B = 0.0004",  { lowHz: F3, semitones: 16, beatHz: 6.93, bLow: 0.0004 }, 0.2);
+
+  heading("SLOW INTERVALS — a fourth and a fifth, which need a longer listen");
+  beatCase("fourth,  0.79 a second", { lowHz: F3, semitones: 5, beatHz: 0.79, bLow: 0.0003 }, 0.12);
+  beatCase("fifth,   0.59 a second", { lowHz: F3, semitones: 7, beatHz: 0.59, bLow: 0.0003 }, 0.12);
+  beatCase("fifth,   1.50 a second", { lowHz: F3, semitones: 7, beatHz: 1.50, bLow: 0.0003 }, 0.12);
+
+  heading("A ROOM RATHER THAN A LABORATORY");
+  beatCase("third at 30 dB signal to noise", { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, snrDb: 30 }, 0.2);
+  beatCase("third at 20 dB",                 { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, snrDb: 20 }, 0.25);
+  beatCase("third at 12 dB",                 { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, snrDb: 12 }, 0.4);
+  beatCase("upper note half the volume",     { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, highAmp: 0.5 }, 0.2);
+  beatCase("upper note a fifth the volume",  { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, highAmp: 0.2 }, 0.3);
+
+  heading("THREE STRINGS A NOTE, NOT QUITE TOGETHER");
+  beatCase("unison within half a cent", { lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, strings: 3, spreadCents: 0.5 }, 0.25);
+  {
+    const { built, r } = readInterval({ lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004, strings: 3, spreadCents: 4 });
+    check("unison four cents out is called out", !!(r && (r.muddled || !r.clean)),
+          r && r.beatHz !== undefined
+            ? "reads " + r.beatHz.toFixed(2) + " for a true " + built.truth.toFixed(2) +
+              (r.muddled ? ", flagged muddled" : ", flagged unclean")
+            : describe(r));
+  }
+
+  heading("NAMING WHAT IT HEARD");
+  for (const c of [
+    { lowHz: F3, semitones: 4, beatHz: 6.93, want: "F3 — A3",   name: "major third from F3" },
+    { lowHz: A3, semitones: 3, beatHz: 11.87, want: "A3 — C4",  name: "minor third from A3" },
+    { lowHz: F3, semitones: 9, beatHz: 7.93, want: "F3 — D4",   name: "major sixth from F3" },
+    { lowHz: C4, semitones: 4, beatHz: 10.38, want: "C4 — E4",  name: "major third from C4" },
+    { lowHz: G3, semitones: 5, beatHz: 0.89, want: "G3 — C4",   name: "fourth from G3" },
+  ]) {
+    const { r } = readInterval({ lowHz: c.lowHz, semitones: c.semitones, beatHz: c.beatHz, bLow: 0.0004 });
+    const got = r && r.lowName ? r.lowName + " — " + r.highName : describe(r);
+    check(c.name, got === c.want, "heard " + got + (r && r.interval ? "  " + r.interval.name : ""));
+  }
+
+  heading("A PIANO THAT IS NOT AT A440");
+  {
+    // A third of a semitone flat. Not a full semitone: a piano exactly a
+    // semitone flat is the same thing as a piano played a semitone higher, and
+    // no amount of listening can tell those apart. This one can be told.
+    const pitch = 432;
+    const flat = pitch / 440;
+    const { r } = readInterval({ lowHz: F3 * flat, semitones: 4, beatHz: 6.5, bLow: 0.0004 });
+    check("still reads the beat", !!(r && r.clean && Math.abs(r.beatHz - 6.5) < 0.2),
+          r && r.beatHz ? r.beatHz.toFixed(2) + " a second" : describe(r));
+    check("reports the piano's own pitch", !!(r && Math.abs(r.a4 - pitch) < 2),
+          r && r.a4 ? "A4 ≈ " + r.a4.toFixed(1) : describe(r));
+    check("names the notes anyway", !!(r && r.lowName === "F3" && r.highName === "A3"),
+          r && r.lowName ? r.lowName + " — " + r.highName : describe(r));
+    // The target anchored to the note as it is sounding must be slower than the
+    // printed-table one by the same fraction the piano is flat by.
+    check("target follows the piano, not the table",
+          !!(r && r.wantHere && r.wantTable &&
+             Math.abs(r.wantHere / r.wantTable - flat) < 0.004),
+          r && r.wantHere ? "here " + r.wantHere.toFixed(2) + ", table " + r.wantTable.toFixed(2) +
+                            " — ratio " + (r.wantHere / r.wantTable).toFixed(4) +
+                            " against a pitch ratio of " + flat.toFixed(4) : "");
+  }
+
+  heading("THINGS THAT ARE NOT AN INTERVAL — none of these may produce a number");
+  {
+    const silence = new Float32Array(SR * 6);
+    const r = Listen.read(silence, silence.length, SR, null);
+    check("silence", !(r && r.beatHz !== undefined), describe(r));
+  }
+  {
+    const one = new Float32Array(SR * 6);
+    Synth.note(one, SR, { f0: F3, b: 0.0004, strings: 3, spreadCents: 0.4 });
+    const r = Listen.read(one, one.length, SR, null);
+    check("one note alone", !(r && r.beatHz !== undefined), describe(r));
+  }
+  {
+    const hiss = new Float32Array(SR * 6);
+    for (let i = 0; i < hiss.length; i++) hiss[i] = 0;
+    Synth.addNoise(hiss, -6);
+    const r = Listen.read(hiss, hiss.length, SR, null);
+    check("noise only", !(r && r.beatHz !== undefined), describe(r));
+  }
+  {
+    // A triad. There is no one interval here and the app must not pick one.
+    const three = new Float32Array(SR * 6);
+    Synth.note(three, SR, { f0: F3, b: 0.0004 });
+    Synth.note(three, SR, { f0: A3, b: 0.0004, phase: 0.3 });
+    Synth.note(three, SR, { f0: C4, b: 0.0004, phase: 0.9 });
+    const r = Listen.read(three, three.length, SR, null);
+    // It may legitimately lock on to the outer or a lower pair; what it must not
+    // do is claim a confident reading of something it cannot have isolated.
+    say("        three notes together → " + (r && r.beatHz !== undefined
+        ? (r.lowName + "—" + r.highName + " " + r.beatHz.toFixed(2) + ", clean=" + r.clean +
+           ", muddled=" + r.muddled)
+        : describe(r)), "note");
+  }
+
+  heading("THE SECOND OPINION — pulling the two partials apart and subtracting");
+  {
+    const { built, r } = readInterval({ lowHz: F3, semitones: 4, beatHz: 6.93, bLow: 0.0004 });
+    check("agrees with the envelope on a third", r && r.agrees === true,
+          r && r.split ? "split says " + r.split.hz.toFixed(2) + ", envelope " + r.beatHz.toFixed(2)
+                       : "no split available");
+  }
+
+  say("");
+  say((fails === 0 ? "ALL " + passes + " CHECKS PASSED" : passes + " passed, " + fails + " FAILED"),
+      fails === 0 ? "pass" : "fail");
+  flush();
+}
+
+document.getElementById("run").onclick = runAll;
+
+/* --- real piano notes, mixed into intervals ----------------------------- */
+
+/*
+ * Ground truth from a note recorded on its own.
+ *
+ * A solo recording has no ambiguity in it: there is one note, its partials are
+ * where they are, and partial `n` can simply be looked up. So the true beat rate
+ * of an interval made by adding two solo recordings together is the difference
+ * between two numbers that were measured before anything was mixed — and the
+ * beat detector, which is the thing under test, plays no part in producing it.
+ */
+const NOTE_FILES = {
+  25: "A2-key25.wav", 28: "C3-key28.wav", 31: "D#3-key31.wav", 34: "F#3-key34.wav",
+  37: "A3-key37.wav", 40: "C4-key40.wav", 46: "F#4-key46.wav",
+};
+
+function partialOf(note, n) {
+  const sr = note.sampleRate;
+  const len = 1 << 16;
+  const start = Math.max(0, Math.min(note.samples.length - len, Math.round(sr * 0.2)));
+  const mags = DSP.magnitudes(note.samples, start, len);
+  const binHz = sr / len;
+  const root = DSP.peakNear(mags, binHz, note.nominal * 0.96, note.nominal * 1.04);
+  if (!root) return null;
+  if (n === 1) return root;
+  const lo = n * root.hz * 0.997;
+  const hi = n * root.hz * Math.sqrt(1 + 0.0012 * n * n);
+  const p = DSP.peakNear(mags, binHz, lo, hi);
+  return p ? { hz: p.hz, amp: p.amp, root: root.hz } : null;
+}
+
+async function loadFixtures() {
+  const loaded = {};
+  for (const key of Object.keys(NOTE_FILES)) {
+    try {
+      const res = await fetch("fixtures/" + encodeURIComponent(NOTE_FILES[key]));
+      if (!res.ok) continue;
+      const note = decodeWav(await res.arrayBuffer());
+      note.nominal = Intervals.keyNominalHz(+key, 440);
+      loaded[+key] = note;
+    } catch (err) { /* not served here; the file picker still works */ }
+  }
+  return loaded;
+}
+
+async function runCorpus(loaded) {
+  lines = []; passes = 0; fails = 0;
+  heading("REAL PIANO NOTES, MIXED INTO INTERVALS");
+  say("        Single notes from one tuned grand, recorded on an iPhone, added", "note");
+  say("        together to make intervals. The true rate comes from measuring each", "note");
+  say("        note's partials in its own recording, where there is nothing to", "note");
+  say("        confuse them — so the answer is known before the mix is listened to.", "note");
+  say("        This is harder than playing the interval for real: two separate", "note");
+  say("        strikes means two rooms and two sets of sympathetic strings added", "note");
+  say("        together, where playing both keys at once would give one of each.", "note");
+  say("");
+
+  const pairs = [[25,28,3],[28,31,3],[31,34,3],[34,37,3],[25,34,9],[28,37,9],[31,40,9],[37,46,9]];
+  let any = false, tried = 0, committed = 0;
+  for (const [lo, hi, span] of pairs) {
+    const a = loaded[lo], b = loaded[hi];
+    if (!a || !b) continue;
+    any = true;
+    const iv = Intervals.interval(span);
+    const pa = partialOf(a, iv.low);
+    const pb = partialOf(b, iv.high);
+    const sr = a.sampleRate;
+    const n = Math.min(a.samples.length, b.samples.length);
+    const mix = new Float32Array(n);
+    for (let i = 0; i < n; i++) mix[i] = a.samples[i] * 0.6 + b.samples[i] * 0.6;
+    // These recordings are under four seconds. Read the window that sits just
+    // after the strike rather than the one at the very end, which is where a
+    // technician listens and also where there is still something to hear.
+    const len = Listen.windowFor(sr, span, Intervals.keyNominalHz(lo, 440));
+    const r = Listen.read(mix, Math.min(n, len + Math.round(sr * 0.3)), sr, null);
+
+    const label = Intervals.keyName(lo) + " — " + Intervals.keyName(hi) + " " + iv.name;
+    if (!pa || !pb) { check(label, false, "could not measure the partials on their own"); continue; }
+    const truth = Math.abs(pb.hz - pa.hz);
+    tried++;
+
+    // Named right? That part is not allowed to be wrong.
+    check(label + " — named", r && r.semitones === span,
+          r && r.lowName ? "heard " + r.lowName + "—" + r.highName : describe(r));
+
+    // The rate is graded only where the app committed to one. Refusing to read
+    // a band it cannot separate is the behaviour being asked for, not a failure
+    // of it — what would be a failure is a confident number that is wrong.
+    if (r && r.beatHz !== undefined && r.clean) {
+      committed++;
+      const err = r.beatHz - truth;
+      check(label + " — rate", Math.abs(err) < 0.4,
+            "true " + truth.toFixed(2) + "  got " + r.beatHz.toFixed(2) +
+            "  off " + (err >= 0 ? "+" : "") + err.toFixed(2) +
+            ", ET wants " + (r.wantHere || 0).toFixed(2) +
+            ", explained " + (r.explained * 100).toFixed(0) + "%" +
+            (r.muddled ? ", MUDDLED" : ""));
+    } else {
+      const got = r && r.beatHz !== undefined
+        ? "would have said " + r.beatHz.toFixed(2) + " (off " +
+          (r.beatHz - truth >= 0 ? "+" : "") + (r.beatHz - truth).toFixed(2) + ", explained " +
+          (r.explained * 100).toFixed(0) + "%)"
+        : describe(r);
+      say("  ----  " + (label + " — declined").padEnd(46) +
+          "true " + truth.toFixed(2) + ", " + got, "note");
+    }
+  }
+  if (!any) { say("        no note files available", "note"); }
+
+  // An app that declined everything would pass every check above. It must
+  // actually read most of what it is given.
+  if (tried) {
+    check("read most of what it was given", committed >= Math.ceil(tried * 0.5),
+          committed + " of " + tried + " committed to a rate");
+  }
+  say("");
+  say(passes + " passed, " + fails + " failed", fails === 0 ? "pass" : "fail");
+  flush();
+}
+
+document.getElementById("corpus").onclick = async () => {
+  const loaded = await loadFixtures();
+  if (Object.keys(loaded).length) return runCorpus(loaded);
+  document.getElementById("files").click();
+};
+document.getElementById("files").onchange = async (e) => {
+  const loaded = {};
+  for (const f of [...e.target.files]) {
+    const key = (f.name.match(/-key(\d+)/) || [])[1];
+    if (!key) continue;
+    const note = decodeWav(await f.arrayBuffer());
+    note.nominal = Intervals.keyNominalHz(+key, 440);
+    loaded[+key] = note;
+  }
+  runCorpus(loaded);
+};
+
+function decodeWav(buf) {
+  const v = new DataView(buf);
+  let p = 12, fmt = null, data = null;
+  while (p + 8 <= buf.byteLength) {
+    const id = String.fromCharCode(v.getUint8(p), v.getUint8(p+1), v.getUint8(p+2), v.getUint8(p+3));
+    const size = v.getUint32(p + 4, true);
+    if (id === "fmt ") fmt = { format: v.getUint16(p+8, true), channels: v.getUint16(p+10, true),
+                               rate: v.getUint32(p+12, true), bits: v.getUint16(p+22, true) };
+    if (id === "data") data = { at: p + 8, size: size };
+    p += 8 + size + (size & 1);
+  }
+  if (!fmt || !data) throw new Error("not a wav");
+  const bytes = fmt.bits / 8;
+  const frames = Math.floor(data.size / bytes / fmt.channels);
+  const out = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    const at = data.at + i * bytes * fmt.channels;
+    if (fmt.format === 3) out[i] = v.getFloat32(at, true);
+    else if (fmt.bits === 16) out[i] = v.getInt16(at, true) / 32768;
+    else if (fmt.bits === 32) out[i] = v.getInt32(at, true) / 2147483648;
+  }
+  return { samples: out, sampleRate: fmt.rate };
+}
+
+runAll();
+</script>
+</body>
+</html>
