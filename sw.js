@@ -12,7 +12,7 @@
  * version appears on the launch after the one that downloaded it, which for a
  * tool with one user is no cost at all.
  */
-const CACHE = "beats-v1";
+const CACHE = "beats-v2";
 
 const SHELL = [
   "./",
@@ -24,6 +24,7 @@ const SHELL = [
   "intervals.js",
   "manifest.json",
   "icon.svg",
+  "apple-touch-icon.png",
 ];
 
 self.addEventListener("install", (e) => {
